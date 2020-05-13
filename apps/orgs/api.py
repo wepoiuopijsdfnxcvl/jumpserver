@@ -8,12 +8,9 @@ from rest_framework_bulk import BulkModelViewSet
 
 from common.permissions import IsSuperUserOrAppUser
 from .models import Organization
-from .serializers import OrgSerializer, OrgReadSerializer, \
+from .serializers import OrgSerializer,  \
     OrgMembershipUserSerializer, OrgMembershipAdminSerializer, \
     OrgAllUserSerializer
-from users.models import User, UserGroup
-from assets.models import Asset, Domain, AdminUser, SystemUser, Label
-from perms.models import AssetPermission
 from orgs.utils import current_org
 from common.utils import get_logger
 from .mixins.api import OrgMembershipModelViewSetMixin
@@ -27,46 +24,28 @@ class OrgViewSet(BulkModelViewSet):
     permission_classes = (IsSuperUserOrAppUser,)
     org = None
 
-    def get_serializer_class(self):
-        if self.action in ('list', 'retrieve'):
-            return OrgReadSerializer
-        else:
-            return super().get_serializer_class()
-
-    def get_data_from_model(self, model):
-        if model == User:
-            data = model.objects.filter(related_user_orgs__id=self.org.id)
-        else:
-            data = model.objects.filter(org_id=self.org.id)
-        return data
-
     def destroy(self, request, *args, **kwargs):
-        self.org = self.get_object()
-        models = [
-            User, UserGroup,
-            Asset, Domain, AdminUser, SystemUser, Label,
-            AssetPermission,
-        ]
-        for model in models:
-            data = self.get_data_from_model(model)
-            if data:
-                return Response(status=status.HTTP_400_BAD_REQUEST)
-        else:
-            if str(current_org) == str(self.org):
-                return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
-            self.org.delete()
-            return Response({'msg': True}, status=status.HTTP_200_OK)
+        org = self.get_object()
+
+        if str(current_org) == str(self.org):
+            error = 'Could not delete current org'
+            return Response({'error': error}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        if org.has_resouces:
+            error = 'Current organization has resources, cannot be delete'
+            return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+        self.org.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class OrgMembershipAdminsViewSet(OrgMembershipModelViewSetMixin, BulkModelViewSet):
     serializer_class = OrgMembershipAdminSerializer
-    membership_class = Organization.admins.through
+    # membership_class = Organization.admins.through
     permission_classes = (IsSuperUserOrAppUser, )
 
 
 class OrgMembershipUsersViewSet(OrgMembershipModelViewSetMixin, BulkModelViewSet):
     serializer_class = OrgMembershipUserSerializer
-    membership_class = Organization.users.through
+    # membership_class = Organization.users.through
     permission_classes = (IsSuperUserOrAppUser, )
 
 

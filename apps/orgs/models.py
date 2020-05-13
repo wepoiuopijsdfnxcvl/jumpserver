@@ -1,21 +1,18 @@
 import uuid
-from django.conf import settings
 
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
 
-from common.utils import is_uuid, lazyproperty
+from common.utils import is_uuid
 
 
 class Organization(models.Model):
     id = models.UUIDField(default=uuid.uuid4, primary_key=True)
     name = models.CharField(max_length=128, unique=True, verbose_name=_("Name"))
-    users = models.ManyToManyField('users.User', related_name='related_user_orgs', blank=True)
-    admins = models.ManyToManyField('users.User', related_name='related_admin_orgs', blank=True)
-    auditors = models.ManyToManyField('users.User', related_name='related_audit_orgs', blank=True)
     created_by = models.CharField(max_length=32, null=True, blank=True, verbose_name=_('Created by'))
     date_created = models.DateTimeField(auto_now_add=True, null=True, blank=True, verbose_name=_('Date created'))
     comment = models.TextField(max_length=128, default='', blank=True, verbose_name=_('Comment'))
+    members = models.ManyToManyField('users.User', related_name='orgs', through='orgs.OrganizationMembers', through_fields=('org', 'user'))
 
     orgs = None
     CACHE_PREFIX = 'JMS_ORG_{}'
@@ -32,6 +29,35 @@ class Organization(models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_resource_amount(self, resource_model):
+        from .utils import tmp_to_org
+        from .mixins.models import OrgModelMixin
+
+        if not issubclass(resource_model, OrgModelMixin):
+            return 0
+        with tmp_to_org(self):
+            return resource_model.objects.all().count()
+
+    def get_total_resources_amount(self):
+        from django.apps import apps
+        from .mixins.models import OrgModelMixin
+        summary = {'users.Members': self.members.all().count()}
+        for app_name, app_config in apps.app_configs.items():
+            models_cls = app_config.get_models()
+            for model in models_cls:
+                if not issubclass(model, OrgModelMixin):
+                    continue
+                key = '{}.{}'.format(app_name, model.__name__)
+                summary[key] = self.get_resource_amount(model)
+        return summary
+
+    def has_resource(self):
+        summary = self.get_total_resources_amount()
+        for tp, amount in summary.items():
+            if amount != 0:
+                return True
+        return False
 
     def set_to_cache(self):
         if self.__class__.orgs is None:
@@ -72,30 +98,6 @@ class Organization(models.Model):
             org = cls.default() if default else None
         return org
 
-    # @lazyproperty
-    # lazyproperty 导致用户列表中角色显示出现不稳定的情况, 如果不加会导致数据库操作次数太多
-    def org_users(self):
-        from users.models import User
-        if self.is_real():
-            return self.users.all()
-        users = User.objects.filter(role=User.ROLE_USER)
-        if self.is_default() and not settings.DEFAULT_ORG_SHOW_ALL_USERS:
-            users = users.filter(related_user_orgs__isnull=True)
-        return users
-
-    def get_org_users(self):
-        return self.org_users()
-
-    # @lazyproperty
-    def org_admins(self):
-        from users.models import User
-        if self.is_real():
-            return self.admins.all()
-        return User.objects.filter(role=User.ROLE_ADMIN)
-
-    def get_org_admins(self):
-        return self.org_admins()
-
     def org_id(self):
         if self.is_real():
             return self.id
@@ -104,31 +106,24 @@ class Organization(models.Model):
         else:
             return ''
 
-    # @lazyproperty
     def org_auditors(self):
-        from users.models import User
-        if self.is_real():
-            return self.auditors.all()
-        return User.objects.filter(role=User.ROLE_AUDITOR)
+        return self.members.filter(role=OrganizationMembers.ROLE_AUDITOR)
 
     def get_org_auditors(self):
         return self.org_auditors()
 
-    def get_org_members(self, exclude=()):
+    def get_org_members(self, role=None):
         from users.models import User
-        members = User.objects.none()
-        if 'Admin' not in exclude:
-            members |= self.get_org_admins()
-        if 'User' not in exclude:
-            members |= self.get_org_users()
-        if 'Auditor' not in exclude:
-            members |= self.get_org_auditors()
-        return members.exclude(role=User.ROLE_APP).distinct()
+        kwargs = {'org': self}
+        if role:
+            kwargs['role'] = role
+        users_id = OrganizationMembers.objects.filter(**kwargs).values_list('user')
+        return User.objects.filter(id__in=users_id)
 
     def can_admin_by(self, user):
         if user.is_superuser:
             return True
-        if self.get_org_admins().filter(id=user.id):
+        if self.get_org_members(role=OrganizationMembers.ROLE_ADMIN).filter(id=user.id):
             return True
         return False
 
@@ -139,52 +134,25 @@ class Organization(models.Model):
             return True
         return False
 
-    def can_user_by(self, user):
-        if self.get_org_users().filter(id=user.id):
-            return True
-        return False
-
     def is_real(self):
         return self.id not in (self.DEFAULT_NAME, self.ROOT_ID, self.SYSTEM_ID)
 
     @classmethod
-    def get_user_admin_orgs(cls, user):
-        admin_orgs = []
+    def get_user_joined_orgs(cls, user, role=None, role_in=None):
         if user.is_anonymous:
-            return admin_orgs
-        elif user.is_superuser:
-            admin_orgs = list(cls.objects.all())
-            admin_orgs.append(cls.default())
-        elif user.is_org_admin:
-            admin_orgs = user.related_admin_orgs.all()
-        return admin_orgs
+            return cls.objects.none()
+        kwargs = {'user': user}
+        if role:
+            kwargs['role'] = role
+        elif role_in:
+            kwargs['role__in'] = role_in
+        orgs_id = OrganizationMembers.objects.filter(**kwargs).values_list('org', flat=True)
+        return cls.objects.filter(id__in=orgs_id)
 
     @classmethod
-    def get_user_user_orgs(cls, user):
-        user_orgs = []
-        if user.is_anonymous:
-            return user_orgs
-        user_orgs = user.related_user_orgs.all()
-        return user_orgs
-
-    @classmethod
-    def get_user_audit_orgs(cls, user):
-        audit_orgs = []
-        if user.is_anonymous:
-            return audit_orgs
-        elif user.is_super_auditor:
-            audit_orgs = list(cls.objects.all())
-            audit_orgs.append(cls.default())
-        elif user.is_org_auditor:
-            audit_orgs = user.related_audit_orgs.all()
-        return audit_orgs
-
-    @classmethod
-    def get_user_admin_or_audit_orgs(self, user):
-        admin_orgs = self.get_user_admin_orgs(user)
-        audit_orgs = self.get_user_audit_orgs(user)
-        orgs = set(admin_orgs) | set(audit_orgs)
-        return orgs
+    def get_user_admin_or_audit_orgs(cls, user):
+        roles = [OrganizationMembers.ROLE_ADMIN, OrganizationMembers.ROLE_AUDITOR]
+        return cls.get_user_joined_orgs(role_in=roles)
 
     @classmethod
     def default(cls):
@@ -216,3 +184,29 @@ class Organization(models.Model):
         orgs = list(cls.objects.all())
         orgs.append(cls.default())
         return orgs
+
+
+class OrganizationMembers(models.Model):
+    ROLE_ADMIN = 'Admin'
+    ROLE_USER = 'User'
+    ROLE_AUDITOR = 'Auditor'
+
+    ROLE_CHOICES = (
+        (ROLE_ADMIN, _('Administrator')),
+        (ROLE_USER, _('User')),
+        (ROLE_AUDITOR, _("Auditor"))
+    )
+    id = models.UUIDField(default=uuid.uuid4, primary_key=True)
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE, verbose_name=_('Organization'))
+    user = models.ForeignKey('users.User', on_delete=models.CASCADE, verbose_name=_('User'))
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_USER, verbose_name=_("Role"))
+    date_created = models.DateTimeField(auto_now_add=True, verbose_name=_("Date created"))
+    date_updated = models.DateTimeField(auto_now=True, verbose_name=_("Date updated"))
+    created_by = models.CharField(max_length=128, null=True, verbose_name=_('Created by'))
+
+    class Meta:
+        unique_together = [('org', 'user', 'role')]
+        db_table = 'orgs_organization_members'
+
+    def __str__(self):
+        return '{} is {}: {}'.format(self.user.name, self.org.name, self.role)

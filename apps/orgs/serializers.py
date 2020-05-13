@@ -1,12 +1,11 @@
 
-import re
 from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
 from users.models import User, UserGroup
 from assets.models import Asset, Domain, AdminUser, SystemUser, Label
 from perms.models import AssetPermission
 from common.serializers import AdaptedBulkListSerializer
-from .utils import set_current_org, get_current_org
+from .utils import tmp_to_org
 from .models import Organization
 from .mixins.serializers import OrgMembershipSerializerMixin
 
@@ -15,69 +14,65 @@ class OrgSerializer(ModelSerializer):
     class Meta:
         model = Organization
         list_serializer_class = AdaptedBulkListSerializer
-        fields = '__all__'
+        fields_mini = ['id', 'name']
+        fields_small = fields_mini + ['comment', 'created_by', 'date_created']
+        fields = fields_small
         read_only_fields = ['created_by', 'date_created']
 
 
 class OrgReadSerializer(ModelSerializer):
-    admins = serializers.SlugRelatedField(slug_field='name', many=True, read_only=True)
-    auditors = serializers.SlugRelatedField(slug_field='name', many=True, read_only=True)
-    users = serializers.SlugRelatedField(slug_field='name', many=True, read_only=True)
-    user_groups = serializers.SerializerMethodField()
-    assets = serializers.SerializerMethodField()
-    domains = serializers.SerializerMethodField()
-    admin_users = serializers.SerializerMethodField()
-    system_users = serializers.SerializerMethodField()
-    labels = serializers.SerializerMethodField()
-    perms = serializers.SerializerMethodField()
+    admins_amount = serializers.SlugRelatedField(slug_field='name', many=True, read_only=True)
+    auditors_amount = serializers.SlugRelatedField(slug_field='name', many=True, read_only=True)
+    users_amount = serializers.SlugRelatedField(slug_field='name', many=True, read_only=True)
+    user_groups_amount = serializers.SerializerMethodField()
+    assets_amount = serializers.SerializerMethodField()
+    domains_amount = serializers.SerializerMethodField()
+    admin_users_amount = serializers.SerializerMethodField()
+    system_users_amount = serializers.SerializerMethodField()
+    labels_amount = serializers.SerializerMethodField()
+    perms_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
         fields = '__all__'
 
     @staticmethod
-    def get_data_from_model(obj, model):
-        current_org = get_current_org()
-        set_current_org(Organization.root())
-        if model == Asset:
-            data = [o.hostname for o in model.objects.filter(org_id=obj.id)]
-        else:
-            data = [o.name for o in model.objects.filter(org_id=obj.id)]
-        set_current_org(current_org)
-        return data
+    def get_org_resource_amount(obj, model):
+        with tmp_to_org(obj):
+            return model.objects.all().count()
 
-    def get_user_groups(self, obj):
-        return self.get_data_from_model(obj, UserGroup)
+    def get_user_groups_amount(self, obj):
+        return self.get_org_resource_amount(obj, UserGroup)
 
     def get_assets(self, obj):
-        return self.get_data_from_model(obj, Asset)
+        return self.get_org_resource_amount(obj, Asset)
 
     def get_domains(self, obj):
-        return self.get_data_from_model(obj, Domain)
+        return self.get_org_resource_amount(obj, Domain)
 
     def get_admin_users(self, obj):
-        return self.get_data_from_model(obj, AdminUser)
+        return self.get_org_resource_amount(obj, AdminUser)
 
     def get_system_users(self, obj):
-        return self.get_data_from_model(obj, SystemUser)
+        return self.get_org_resource_amount(obj, SystemUser)
 
     def get_labels(self, obj):
-        return self.get_data_from_model(obj, Label)
+        return self.get_org_resource_amount(obj, Label)
 
     def get_perms(self, obj):
-        return self.get_data_from_model(obj, AssetPermission)
+        return self.get_org_resource_amount(obj, AssetPermission)
 
 
 class OrgMembershipAdminSerializer(OrgMembershipSerializerMixin, ModelSerializer):
     class Meta:
-        model = Organization.admins.through
+        # model = Organization.admins.through
         list_serializer_class = AdaptedBulkListSerializer
         fields = '__all__'
 
 
 class OrgMembershipUserSerializer(OrgMembershipSerializerMixin, ModelSerializer):
     class Meta:
-        model = Organization.users.through
+        # model = Organization.users.through
         list_serializer_class = AdaptedBulkListSerializer
         fields = '__all__'
 
