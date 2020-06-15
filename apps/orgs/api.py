@@ -8,9 +8,9 @@ from rest_framework_bulk import BulkModelViewSet
 
 from common.permissions import IsSuperUserOrAppUser
 from .models import Organization
-from .serializers import OrgSerializer,  \
+from .serializers import OrgSerializer, OrgReadSerializer, \
     OrgMembershipUserSerializer, OrgMembershipAdminSerializer, \
-    OrgAllUserSerializer
+    OrgAllUserSerializer, OrgRetrieveSerializer
 from orgs.utils import current_org
 from common.utils import get_logger
 from .mixins.api import OrgMembershipModelViewSetMixin
@@ -23,6 +23,13 @@ class OrgViewSet(BulkModelViewSet):
     serializer_class = OrgSerializer
     permission_classes = (IsSuperUserOrAppUser,)
     org = None
+
+    def get_serializer_class(self):
+        mapper = {
+            'list': OrgReadSerializer,
+            'retrieve': OrgRetrieveSerializer
+        }
+        return mapper.get(self.action, super().get_serializer_class())
 
     def destroy(self, request, *args, **kwargs):
         org = self.get_object()

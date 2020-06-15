@@ -1,11 +1,7 @@
 
 from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
-from users.models import User, UserGroup
-from assets.models import Asset, Domain, AdminUser, SystemUser, Label
-from perms.models import AssetPermission
 from common.serializers import AdaptedBulkListSerializer
-from .utils import tmp_to_org
 from .models import Organization
 from .mixins.serializers import OrgMembershipSerializerMixin
 
@@ -18,7 +14,11 @@ class OrgSerializer(ModelSerializer):
         fields_small = fields_mini + ['comment', 'created_by', 'date_created']
         fields = fields_small
         read_only_fields = ['created_by', 'date_created']
-
+        extra_kwargs = {
+            'admins': {'write_only': True},
+            'users': {'write_only': True},
+            'auditors': {'write_only': True},
+        }
 
 class OrgReadSerializer(ModelSerializer):
     admins_amount = serializers.SlugRelatedField(slug_field='name', many=True, read_only=True)
@@ -31,36 +31,6 @@ class OrgReadSerializer(ModelSerializer):
     system_users_amount = serializers.SerializerMethodField()
     labels_amount = serializers.SerializerMethodField()
     perms_amount = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Organization
-        fields = '__all__'
-
-    @staticmethod
-    def get_org_resource_amount(obj, model):
-        with tmp_to_org(obj):
-            return model.objects.all().count()
-
-    def get_user_groups_amount(self, obj):
-        return self.get_org_resource_amount(obj, UserGroup)
-
-    def get_assets(self, obj):
-        return self.get_org_resource_amount(obj, Asset)
-
-    def get_domains(self, obj):
-        return self.get_org_resource_amount(obj, Domain)
-
-    def get_admin_users(self, obj):
-        return self.get_org_resource_amount(obj, AdminUser)
-
-    def get_system_users(self, obj):
-        return self.get_org_resource_amount(obj, SystemUser)
-
-    def get_labels(self, obj):
-        return self.get_org_resource_amount(obj, Label)
-
-    def get_perms(self, obj):
-        return self.get_org_resource_amount(obj, AssetPermission)
 
 
 class OrgMembershipAdminSerializer(OrgMembershipSerializerMixin, ModelSerializer):
@@ -87,3 +57,12 @@ class OrgAllUserSerializer(serializers.Serializer):
     @staticmethod
     def get_user_display(obj):
         return str(obj)
+
+
+class OrgRetrieveSerializer(OrgReadSerializer):
+    admins = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    auditors = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    users = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+
+    class Meta(OrgReadSerializer.Meta):
+        pass

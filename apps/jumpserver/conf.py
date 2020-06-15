@@ -16,6 +16,7 @@ import json
 import yaml
 from importlib import import_module
 from django.urls import reverse_lazy
+from django.contrib.staticfiles.templatetags.staticfiles import static
 from urllib.parse import urljoin, urlparse
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -123,7 +124,7 @@ class Config(dict):
         # Django Config, Must set before start
         'SECRET_KEY': '',
         'BOOTSTRAP_TOKEN': '',
-        'DEBUG': True,
+        'DEBUG': False,
         'LOG_LEVEL': 'DEBUG',
         'LOG_DIR': os.path.join(PROJECT_DIR, 'logs'),
         'DB_ENGINE': 'mysql',
@@ -173,11 +174,12 @@ class Config(dict):
         # OpenID 配置参数
         # OpenID 公有配置参数 (version <= 1.5.8 或 version >= 1.5.8)
         'AUTH_OPENID': False,
+        'BASE_SITE_URL': None,
         'AUTH_OPENID_CLIENT_ID': 'client-id',
         'AUTH_OPENID_CLIENT_SECRET': 'client-secret',
         'AUTH_OPENID_SHARE_SESSION': True,
         'AUTH_OPENID_IGNORE_SSL_VERIFICATION': True,
-        # OpenID 新配置参数 (version >= 1.5.8)
+        # OpenID 新配置参数 (version >= 1.5.9)
         'AUTH_OPENID_PROVIDER_ENDPOINT': 'https://op-example.com/',
         'AUTH_OPENID_PROVIDER_AUTHORIZATION_ENDPOINT': 'https://op-example.com/authorize',
         'AUTH_OPENID_PROVIDER_TOKEN_ENDPOINT': 'https://op-example.com/token',
@@ -193,7 +195,6 @@ class Config(dict):
         'AUTH_OPENID_USE_NONCE': True,
         'AUTH_OPENID_ALWAYS_UPDATE_USER': True,
         # OpenID 旧配置参数 (version <= 1.5.8 (discarded))
-        'BASE_SITE_URL': 'http://localhost:8080',
         'AUTH_OPENID_SERVER_URL': 'http://openid',
         'AUTH_OPENID_REALM_NAME': None,
 
@@ -256,7 +257,9 @@ class Config(dict):
         'FORCE_SCRIPT_NAME': '',
         'LOGIN_CONFIRM_ENABLE': False,
         'WINDOWS_SKIP_ALL_MANUAL_PASSWORD': False,
-        'ORG_CHANGE_TO_URL': ''
+        'ORG_CHANGE_TO_URL': '',
+        'LANGUAGE_CODE': 'zh',
+        'TIME_ZONE': 'Asia/Shanghai'
     }
 
     def compatible_auth_openid_of_key(self):
@@ -434,6 +437,38 @@ class DynamicConfig:
         if self.static_config.get('AUTH_RADIUS'):
             backends.insert(0, 'authentication.backends.radius.RadiusBackend')
         return backends
+
+    def XPACK_LICENSE_IS_VALID(self):
+        if not HAS_XPACK:
+            return False
+        try:
+            from xpack.plugins.license.models import License
+            return License.has_valid_license()
+        except:
+            return False
+
+    def LOGO_URLS(self):
+        logo_urls = {'logo_logout': static('img/logo.png'),
+                     'logo_index': static('img/logo_text.png'),
+                     'login_image': static('img/login_image.png'),
+                     'favicon': static('img/facio.ico')}
+        if not HAS_XPACK:
+            return logo_urls
+        try:
+            from xpack.plugins.interface.models import Interface
+            obj = Interface.interface()
+            if obj:
+                if obj.logo_logout:
+                    logo_urls.update({'logo_logout': obj.logo_logout.url})
+                if obj.logo_index:
+                    logo_urls.update({'logo_index': obj.logo_index.url})
+                if obj.login_image:
+                    logo_urls.update({'login_image': obj.login_image.url})
+                if obj.favicon:
+                    logo_urls.update({'favicon': obj.favicon.url})
+        except:
+            pass
+        return logo_urls
 
     def get_from_db(self, item):
         if self.db_setting is not None:
@@ -630,4 +665,3 @@ class ConfigManager:
     @classmethod
     def get_dynamic_config(cls, config):
         return DynamicConfig(config)
-
