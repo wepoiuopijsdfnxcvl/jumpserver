@@ -13,12 +13,9 @@ class OrgSerializer(ModelSerializer):
         fields_mini = ['id', 'name']
         fields_small = fields_mini + ['comment', 'created_by', 'date_created']
         fields = fields_small
+        field_m2m = ['members']
         read_only_fields = ['created_by', 'date_created']
-        extra_kwargs = {
-            'admins': {'write_only': True},
-            'users': {'write_only': True},
-            'auditors': {'write_only': True},
-        }
+
 
 class OrgReadSerializer(ModelSerializer):
     admins_amount = serializers.SlugRelatedField(slug_field='name', many=True, read_only=True)
@@ -63,6 +60,3 @@ class OrgRetrieveSerializer(OrgReadSerializer):
     admins = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     auditors = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     users = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-
-    class Meta(OrgReadSerializer.Meta):
-        pass

@@ -106,11 +106,8 @@ class Organization(models.Model):
         else:
             return ''
 
-    def org_auditors(self):
-        return self.members.filter(role=OrganizationMembers.ROLE_AUDITOR)
-
     def get_org_auditors(self):
-        return self.org_auditors()
+        return self.members.filter(role=OrganizationMembers.ROLE_AUDITOR)
 
     def get_org_members(self, role=None):
         from users.models import User
@@ -138,21 +135,19 @@ class Organization(models.Model):
         return self.id not in (self.DEFAULT_NAME, self.ROOT_ID, self.SYSTEM_ID)
 
     @classmethod
-    def get_user_joined_orgs(cls, user, role=None, role_in=None):
+    def get_user_joined_orgs(cls, user, roles=None):
         if user.is_anonymous:
             return cls.objects.none()
         kwargs = {'user': user}
-        if role:
-            kwargs['role'] = role
-        elif role_in:
-            kwargs['role__in'] = role_in
+        if roles:
+            kwargs['role__in'] = roles
         orgs_id = OrganizationMembers.objects.filter(**kwargs).values_list('org', flat=True)
         return cls.objects.filter(id__in=orgs_id)
 
     @classmethod
     def get_user_admin_or_audit_orgs(cls, user):
         roles = [OrganizationMembers.ROLE_ADMIN, OrganizationMembers.ROLE_AUDITOR]
-        return cls.get_user_joined_orgs(role_in=roles)
+        return cls.get_user_joined_orgs(user, roles=roles)
 
     @classmethod
     def default(cls):
