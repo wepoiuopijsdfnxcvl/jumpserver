@@ -23,6 +23,7 @@ api_v1 = [
     path('common/', include('common.urls.api_urls', namespace='api-common')),
     path('applications/', include('applications.urls.api_urls', namespace='api-applications')),
     path('tickets/', include('tickets.urls.api_urls', namespace='api-tickets')),
+    path('login-policies', include('login_policy.api_urls', namespace='api-login-policies'))
 ]
 
 api_v2 = [

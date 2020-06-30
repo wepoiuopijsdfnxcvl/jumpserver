@@ -1,14 +1,24 @@
 # -*- coding: utf-8 -*-
 #
-from django.utils.translation import ugettext_lazy as _
-from rest_framework import serializers
-from rest_framework.validators import UniqueTogetherValidator
-
+from IPy import IP
+from rest_framework.exceptions import ValidationError
+from orgs.mixins.serializers import BulkOrgResourceModelSerializer
 from .models import LoginPolicy
 
 
-class LoginPolicySerializer(serializers.ModelSerializer):
+class LoginPolicySerializer(BulkOrgResourceModelSerializer):
 
     class Meta:
         model = LoginPolicy
-        fields = ('', )
+        fields = ['name', 'ips', 'date_from', 'date_to', 'users']
+        extra_kwargs = {
+            'users': {'required': False, 'allow_empty': True}
+        }
+
+    def validate_ips(self, value: str):
+        for ip in value.split(','):
+            try:
+                IP(ip.strip())
+            except ValueError as e:
+                raise ValidationError(e)
+        return value

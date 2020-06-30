@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'authentication.apps.AuthenticationConfig',  # authentication
     'applications.apps.ApplicationsConfig',
     'tickets.apps.TicketsConfig',
+    'login_policy.apps.LoginPolicyConfig',
     'jms_oidc_rp',
     'rest_framework',
     'rest_framework_swagger',

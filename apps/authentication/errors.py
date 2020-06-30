@@ -16,6 +16,7 @@ reason_user_not_exist = 'user_not_exist'
 reason_password_expired = 'password_expired'
 reason_user_invalid = 'user_invalid'
 reason_user_inactive = 'user_inactive'
+reason_user_policy_limited = 'user_policy_limited'
 
 reason_choices = {
     reason_password_failed: _('Username/password check failed'),
