@@ -17,7 +17,9 @@ def check_user_policies(user: User, request: Request):
                 continue
 
             for ip in login_policy.ips.split(','):
-                if remote_ip in IP(ip.strip()):
+                if ip == '*':
+                    break
+                if ip and remote_ip in IP(ip.strip()):
                     break
             else:
                 continue

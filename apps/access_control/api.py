@@ -1,9 +1,9 @@
 from orgs.mixins.api import OrgBulkModelViewSet
 
-from .models import LoginPolicy
+from .models import AccessControl
 from .serializers import LoginPolicySerializer
 
 
 class LoginPolicyViewSet(OrgBulkModelViewSet):
-    model = LoginPolicy
+    model = AccessControl
     serializer_class = LoginPolicySerializer

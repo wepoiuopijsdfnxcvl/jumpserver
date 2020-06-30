@@ -48,7 +48,7 @@ INSTALLED_APPS = [
     'authentication.apps.AuthenticationConfig',  # authentication
     'applications.apps.ApplicationsConfig',
     'tickets.apps.TicketsConfig',
-    'login_policy.apps.LoginPolicyConfig',
+    'access_control.apps.AccessControlConfig',
     'jms_oidc_rp',
     'rest_framework',
     'rest_framework_swagger',
@@ -83,6 +83,7 @@ MIDDLEWARE = [
     'jumpserver.middleware.DemoMiddleware',
     'jumpserver.middleware.RequestMiddleware',
     'orgs.middleware.OrgMiddleware',
+    'access_control.middleware.AccessControlMiddleware'
 ]
 
 

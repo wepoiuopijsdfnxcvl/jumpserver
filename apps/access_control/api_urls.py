@@ -2,9 +2,9 @@ from rest_framework_bulk.routes import BulkRouter
 
 from .api import LoginPolicyViewSet
 
-app_name = 'login-policy'
+app_name = 'access-control'
 
 router = BulkRouter()
-router.register('login-policies', LoginPolicyViewSet, 'login-policy')
+router.register('access-controls', LoginPolicyViewSet, 'access-control')
 
 urlpatterns = router.urls

@@ -3,14 +3,14 @@
 from IPy import IP
 from rest_framework.exceptions import ValidationError
 from orgs.mixins.serializers import BulkOrgResourceModelSerializer
-from .models import LoginPolicy
+from .models import AccessControl
 
 
 class LoginPolicySerializer(BulkOrgResourceModelSerializer):
 
     class Meta:
-        model = LoginPolicy
-        fields = ['name', 'ips', 'date_from', 'date_to', 'users']
+        model = AccessControl
+        fields = ['id', 'name', 'ips', 'date_from', 'date_to', 'users']
         extra_kwargs = {
             'users': {'required': False, 'allow_empty': True}
         }

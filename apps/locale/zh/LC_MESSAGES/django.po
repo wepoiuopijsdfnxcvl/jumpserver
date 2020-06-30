@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: JumpServer 0.3.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2020-05-20 19:25+0800\n"
+"POT-Creation-Date: 2020-06-30 14:49+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: ibuler <ibuler@qq.com>\n"
 "Language-Team: JumpServer team<ibuler@qq.com>\n"
@@ -1200,7 +1200,7 @@ msgid "Default"
 msgstr "默认"
 
 #: assets/models/cluster.py:36 assets/models/label.py:14
-#: users/models/user.py:600
+#: users/models/user.py:604
 msgid "System"
 msgstr "系统"
 
@@ -1333,7 +1333,7 @@ msgstr "默认资产组"
 #: tickets/models/ticket.py:128 tickets/templates/tickets/ticket_detail.html:32
 #: tickets/templates/tickets/ticket_list.html:34
 #: tickets/templates/tickets/ticket_list.html:103 users/forms/group.py:15
-#: users/models/user.py:143 users/models/user.py:159 users/models/user.py:588
+#: users/models/user.py:143 users/models/user.py:159 users/models/user.py:592
 #: users/serializers/group.py:20
 #: users/templates/users/user_asset_permission.html:38
 #: users/templates/users/user_asset_permission.html:64
@@ -2721,39 +2721,43 @@ msgstr ""
 msgid "Invalid token or cache refreshed."
 msgstr ""
 
-#: authentication/errors.py:21
+#: authentication/errors.py:22
 msgid "Username/password check failed"
 msgstr "用户名/密码 校验失败"
 
-#: authentication/errors.py:22
+#: authentication/errors.py:23
 msgid "MFA failed"
 msgstr "多因子认证失败"
 
-#: authentication/errors.py:23
+#: authentication/errors.py:24
 msgid "MFA unset"
 msgstr "多因子认证没有设定"
 
-#: authentication/errors.py:24
+#: authentication/errors.py:25
 msgid "Username does not exist"
 msgstr "用户名不存在"
 
-#: authentication/errors.py:25
+#: authentication/errors.py:26
 msgid "Password expired"
 msgstr "密码已过期"
 
-#: authentication/errors.py:26
+#: authentication/errors.py:27
 msgid "Disabled or expired"
 msgstr "禁用或失效"
 
-#: authentication/errors.py:27
+#: authentication/errors.py:28
 msgid "This account is inactive."
 msgstr "此账户已禁用"
 
-#: authentication/errors.py:37
+#: authentication/errors.py:29
+msgid "Access control denied."
+msgstr "访问控制拒绝了您的登录"
+
+#: authentication/errors.py:39
 msgid "No session found, check your cookie"
 msgstr "会话已变更，刷新页面"
 
-#: authentication/errors.py:39
+#: authentication/errors.py:41
 #, python-brace-format
 msgid ""
 "The username or password you entered is incorrect, please enter it again. "
@@ -2763,34 +2767,34 @@ msgstr ""
 "您输入的用户名或密码不正确，请重新输入。 您还可以尝试 {times_try} 次（账号将"
 "被临时 锁定 {block_time} 分钟）"
 
-#: authentication/errors.py:45
+#: authentication/errors.py:47
 msgid ""
 "The account has been locked (please contact admin to unlock it or try again "
 "after {} minutes)"
 msgstr "账号已被锁定（请联系管理员解锁 或 {}分钟后重试）"
 
-#: authentication/errors.py:48 users/views/profile/otp.py:63
+#: authentication/errors.py:50 users/views/profile/otp.py:63
 #: users/views/profile/otp.py:102 users/views/profile/otp.py:121
 msgid "MFA code invalid, or ntp sync server time"
 msgstr "MFA验证码不正确，或者服务器端时间不对"
 
-#: authentication/errors.py:50
+#: authentication/errors.py:52
 msgid "MFA required"
 msgstr "需要多因子认证"
 
-#: authentication/errors.py:51
+#: authentication/errors.py:53
 msgid "MFA not set, please set it first"
 msgstr "多因子认证没有设置，请先完成设置"
 
-#: authentication/errors.py:52
+#: authentication/errors.py:54
 msgid "Login confirm required"
 msgstr "需要登录复核"
 
-#: authentication/errors.py:53
+#: authentication/errors.py:55
 msgid "Wait login confirm ticket for accept"
 msgstr "等待登录复核处理"
 
-#: authentication/errors.py:54
+#: authentication/errors.py:56
 msgid "Login confirm ticket was {}"
 msgstr "登录复核 {}"
 
@@ -5434,7 +5438,7 @@ msgstr "设置密码"
 msgid "Password strategy"
 msgstr "密码策略"
 
-#: users/models/user.py:142 users/models/user.py:596
+#: users/models/user.py:142 users/models/user.py:600
 msgid "Administrator"
 msgstr "管理员"
 
@@ -5472,7 +5476,7 @@ msgstr "微信"
 msgid "Date password last updated"
 msgstr "最后更新密码日期"
 
-#: users/models/user.py:599
+#: users/models/user.py:603
 msgid "Administrator is the super user of system"
 msgstr "Administrator是初始的超级管理员"
 
