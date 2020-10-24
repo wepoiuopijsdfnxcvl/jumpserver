@@ -4,7 +4,7 @@ import uuid
 import re
 
 from django.db import models, transaction
-from django.db.models import Q
+from django.db.models import Q, F, Case, When
 from django.db.utils import IntegrityError
 from django.utils.translation import ugettext_lazy as _
 from django.utils.translation import ugettext
@@ -13,7 +13,7 @@ from django.db.transaction import atomic
 from common.utils import get_logger
 from common.utils.common import lazyproperty
 from orgs.mixins.models import OrgModelMixin, OrgManager
-from orgs.utils import get_current_org, tmp_to_org, current_org
+from orgs.utils import get_current_org, tmp_to_org
 from orgs.models import Organization
 
 
@@ -84,10 +84,16 @@ class FamilyMixin:
         return Node.objects.filter(q)
 
     def get_all_children(self, with_self=False):
-        q = Q(key__istartswith=f'{self.key}:')
         if with_self:
-            q |= Q(key=self.key)
-        return Node.objects.filter(q)
+            q = Q(left__gte=self.left, right__lte=self.right)
+        else:
+            q = Q(left__gt=self.left, right__lt=self.right)
+
+        org = get_current_org()
+        if not org or org.is_root():
+            q &= Q(org_id=self.org_id)
+
+        return self.__class__.objects.filter(q)
 
     @property
     def children(self):
@@ -99,11 +105,21 @@ class FamilyMixin:
 
     def create_child(self, value=None, _id=None):
         with atomic(savepoint=False):
-            child_key = self.get_next_child_key()
-            if value is None:
-                value = child_key
+            index = self.right
+
+            nodes_to_update = self.__class__.objects.filter(right__gte=index)
+            nodes_to_update.update(
+                right=F('right') + 2,
+                left=Case(
+                    When(left__gt=index, then=F('left')+2),
+                    default=F('left'),
+                    output_field=models.IntegerField()
+                )
+            )
+
             child = self.__class__.objects.create(
-                id=_id, key=child_key, value=value, parent_key=self.key,
+                id=_id, value=value, parent=self,
+                left=index, right=index + 1, level=self.level+1
             )
             return child
 
@@ -160,8 +176,16 @@ class FamilyMixin:
         return self.get_ancestors(with_self=False)
 
     def get_ancestors(self, with_self=False):
-        ancestor_keys = self.get_ancestor_keys(with_self=with_self)
-        return self.__class__.objects.filter(key__in=ancestor_keys)
+        if with_self:
+            q = Q(left__lte=self.left, right__gte=self.right)
+        else:
+            q = Q(left__lt=self.left, right__gt=self.right)
+
+        org = get_current_org()
+        if not org or org.is_root():
+            q &= Q(org_id=self.org_id)
+
+        return self.__class__.objects.filter(q)
 
     # @property
     # def parent_key(self):
@@ -377,9 +401,9 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
     parent_key = models.CharField(max_length=64, verbose_name=_("Parent key"),
                                   db_index=True, default='')
     assets_amount = models.IntegerField(default=0)
-    left = models.IntegerField(default=0, null=False)
-    right = models.IntegerField(default=0, null=False)
-    level = models.IntegerField(default=0, null=False)
+    left = models.IntegerField(default=0, null=False, db_index=True)
+    right = models.IntegerField(default=0, null=False, db_index=True)
+    level = models.IntegerField(default=0, null=False, db_index=True)
     parent = models.ForeignKey('self', db_constraint=False, on_delete=models.PROTECT,
                                default=None, null=True)
 
@@ -394,11 +418,6 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
     def __str__(self):
         return self.value
 
-    # def __eq__(self, other):
-    #     if not other:
-    #         return False
-    #     return self.id == other.id
-    #
     def __gt__(self, other):
         self_key = [int(k) for k in self.key.split(':')]
         other_key = [int(k) for k in other.key.split(':')]
