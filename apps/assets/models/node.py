@@ -21,13 +21,6 @@ __all__ = ['Node', 'FamilyMixin', 'compute_parent_key']
 logger = get_logger(__name__)
 
 
-def compute_parent_key(key):
-    try:
-        return key[:key.rindex(':')]
-    except ValueError:
-        return ''
-
-
 class NodeQuerySet(models.QuerySet):
     def delete(self):
         raise NotImplementedError
@@ -39,48 +32,10 @@ class FamilyMixin:
     __all_children = None
     is_node = True
 
-    @staticmethod
-    def clean_children_keys(nodes_keys):
-        sort_key = lambda k: [int(i) for i in k.split(':')]
-        nodes_keys = sorted(list(nodes_keys), key=sort_key)
-
-        nodes_keys_clean = []
-        base_key = ''
-        for key in nodes_keys:
-            if key.startswith(base_key + ':'):
-                continue
-            nodes_keys_clean.append(key)
-            base_key = key
-        return nodes_keys_clean
-
-    @classmethod
-    def get_node_all_children_key_pattern(cls, key, with_self=True):
-        pattern = r'^{0}:'.format(key)
-        if with_self:
-            pattern += r'|^{0}$'.format(key)
-        return pattern
-
-    @classmethod
-    def get_node_children_key_pattern(cls, key, with_self=True):
-        pattern = r'^{0}:[0-9]+$'.format(key)
-        if with_self:
-            pattern += r'|^{0}$'.format(key)
-        return pattern
-
-    def get_children_key_pattern(self, with_self=False):
-        return self.get_node_children_key_pattern(self.key, with_self=with_self)
-
-    def get_all_children_pattern(self, with_self=False):
-        return self.get_node_all_children_key_pattern(self.key, with_self=with_self)
-
-    def is_children(self, other):
-        children_pattern = other.get_children_key_pattern(with_self=False)
-        return re.match(children_pattern, self.key)
-
     def get_children(self, with_self=False):
-        q = Q(parent_key=self.key)
+        q = Q(parent=self)
         if with_self:
-            q |= Q(key=self.key)
+            q |= Q(id=self.id)
         return Node.objects.filter(q)
 
     def get_all_children(self, with_self=False):
@@ -137,12 +92,6 @@ class FamilyMixin:
             created = True
         return child, created
 
-    def get_next_child_key(self):
-        mark = self.child_mark
-        self.child_mark += 1
-        self.save()
-        return "{}:{}".format(self.key, mark)
-
     def get_next_child_preset_name(self):
         name = ugettext("New node")
         values = [
@@ -153,23 +102,6 @@ class FamilyMixin:
         values = [int(value) for value in values if value.strip().isdigit()]
         count = max(values) + 1 if values else 1
         return '{} {}'.format(name, count)
-
-    # Parents
-    @classmethod
-    def get_node_ancestor_keys(cls, key, with_self=False):
-        parent_keys = []
-        key_list = key.split(":")
-        if not with_self:
-            key_list.pop()
-        for i in range(len(key_list)):
-            parent_keys.append(":".join(key_list))
-            key_list.pop()
-        return parent_keys
-
-    def get_ancestor_keys(self, with_self=False):
-        return self.get_node_ancestor_keys(
-            self.key, with_self=with_self
-        )
 
     @property
     def ancestors(self):
@@ -187,37 +119,32 @@ class FamilyMixin:
 
         return self.__class__.objects.filter(q)
 
-    # @property
-    # def parent_key(self):
-    #     parent_key = ":".join(self.key.split(":")[:-1])
-    #     return parent_key
-
-    def compute_parent_key(self):
-        return compute_parent_key(self.key)
-
-    def is_parent(self, other):
-        return other.is_children(self)
-
     @property
     def parent(self):
         if self.is_org_root():
             return self
-        parent_key = self.parent_key
-        return Node.objects.get(key=parent_key)
+        return self.parent
 
     @parent.setter
     def parent(self, parent):
-        if not self.is_node:
-            self.key = parent.key + ':fake'
-            return
-        children = self.get_all_children()
-        old_key = self.key
-        with transaction.atomic():
-            self.key = parent.get_next_child_key()
-            self.save()
-            for child in children:
-                child.key = child.key.replace(old_key, self.key, 1)
-                child.save()
+        with transaction.atomic(savepoint=False):
+            parent: Node
+            self: Node
+
+            index = parent.right
+
+            offset = self.right - self.left + 1
+            to_update_nodes = Node.objects.filter(
+                right__gte=index
+            )
+            Node.objects.update(
+                right=F('right') + offset,
+                left=Case(
+                    When(left__gt=index, then=F('left')+index),
+                    default=F('left'),
+                    output_field=models.IntegerField()
+                )
+            )
 
     def get_siblings(self, with_self=False):
         key = ':'.join(self.key.split(':')[:-1])
