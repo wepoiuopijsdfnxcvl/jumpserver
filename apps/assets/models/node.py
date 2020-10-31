@@ -374,8 +374,42 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
             )
         )
 
-    def init_mptt_tree(self, node, index=1):
-        pass
+    def init_mptt_serial(self, node, index=1):
+        node: Node
+
+        brothers = Stack()
+        ancestors = Stack()
+        to_update_nodes = []
+
+        while node:
+            # 一个空白的节点
+            node.left = index
+            index += 1
+            children = node.children.all()
+            if children:
+                ancestors.push(node)
+                node, *children = children
+                brothers.push_all(children)
+            else:
+                while node:
+                    node.right = index
+                    index += 1
+                    to_update_nodes.append(node)
+                    may_brother: Node = brothers.top
+                    if may_brother and may_brother.parent_id == node.parent_id:
+                        node = brothers.pop()
+                        # 终止当前循环，进入外层循环
+                        break
+                    else:
+                        if ancestors:
+                            node = ancestors.pop()
+                            continue
+                        else:
+                            # 没有祖先节点了，整个任务结束
+                            node = None
+                            break
+
+        Node.objects.bulk_update(to_update_nodes, fields=('left', 'right'))
 
     @parent.setter
     def parent(self, parent):
