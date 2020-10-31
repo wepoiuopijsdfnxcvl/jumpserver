@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 #
 import uuid
-import re
 
 from django.db import models, transaction
 from django.db.models import Q, F, Case, When
@@ -10,6 +9,7 @@ from django.utils.translation import ugettext_lazy as _
 from django.utils.translation import ugettext
 from django.db.transaction import atomic
 
+from common.struct import Stack
 from common.utils import get_logger
 from common.utils.common import lazyproperty
 from orgs.mixins.models import OrgModelMixin, OrgManager
@@ -17,7 +17,7 @@ from orgs.utils import get_current_org, tmp_to_org
 from orgs.models import Organization
 
 
-__all__ = ['Node', 'FamilyMixin', 'compute_parent_key']
+__all__ = ['Node', 'FamilyMixin']
 logger = get_logger(__name__)
 
 
@@ -32,66 +32,6 @@ class FamilyMixin:
     __all_children = None
     is_node = True
 
-    def get_children(self, with_self=False):
-        q = Q(parent=self)
-        if with_self:
-            q |= Q(id=self.id)
-        return Node.objects.filter(q)
-
-    def get_all_children(self, with_self=False):
-        if with_self:
-            q = Q(left__gte=self.left, right__lte=self.right)
-        else:
-            q = Q(left__gt=self.left, right__lt=self.right)
-
-        org = get_current_org()
-        if not org or org.is_root():
-            q &= Q(org_id=self.org_id)
-
-        return self.__class__.objects.filter(q)
-
-    @property
-    def children(self):
-        return self.get_children(with_self=False)
-
-    @property
-    def all_children(self):
-        return self.get_all_children(with_self=False)
-
-    def create_child(self, value=None, _id=None):
-        with atomic(savepoint=False):
-            index = self.right
-
-            nodes_to_update = self.__class__.objects.filter(right__gte=index)
-            nodes_to_update.update(
-                right=F('right') + 2,
-                left=Case(
-                    When(left__gt=index, then=F('left')+2),
-                    default=F('left'),
-                    output_field=models.IntegerField()
-                )
-            )
-
-            child = self.__class__.objects.create(
-                id=_id, value=value, parent=self,
-                left=index, right=index + 1, level=self.level+1
-            )
-            return child
-
-    def get_or_create_child(self, value, _id=None):
-        """
-        :return: Node, bool (created)
-        """
-        children = self.get_children()
-        exist = children.filter(value=value).exists()
-        if exist:
-            child = children.filter(value=value).first()
-            created = False
-        else:
-            child = self.create_child(value, _id)
-            created = True
-        return child, created
-
     def get_next_child_preset_name(self):
         name = ugettext("New node")
         values = [
@@ -102,49 +42,6 @@ class FamilyMixin:
         values = [int(value) for value in values if value.strip().isdigit()]
         count = max(values) + 1 if values else 1
         return '{} {}'.format(name, count)
-
-    @property
-    def ancestors(self):
-        return self.get_ancestors(with_self=False)
-
-    def get_ancestors(self, with_self=False):
-        if with_self:
-            q = Q(left__lte=self.left, right__gte=self.right)
-        else:
-            q = Q(left__lt=self.left, right__gt=self.right)
-
-        org = get_current_org()
-        if not org or org.is_root():
-            q &= Q(org_id=self.org_id)
-
-        return self.__class__.objects.filter(q)
-
-    @property
-    def parent(self):
-        if self.is_org_root():
-            return self
-        return self.parent
-
-    @parent.setter
-    def parent(self, parent):
-        with transaction.atomic(savepoint=False):
-            parent: Node
-            self: Node
-
-            index = parent.right
-
-            offset = self.right - self.left + 1
-            to_update_nodes = Node.objects.filter(
-                right__gte=index
-            )
-            Node.objects.update(
-                right=F('right') + offset,
-                left=Case(
-                    When(left__gt=index, then=F('left')+index),
-                    default=F('left'),
-                    output_field=models.IntegerField()
-                )
-            )
 
     def get_siblings(self, with_self=False):
         key = ':'.join(self.key.split(':')[:-1])
@@ -332,7 +229,7 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
     right = models.IntegerField(default=0, null=False, db_index=True)
     level = models.IntegerField(default=0, null=False, db_index=True)
     parent = models.ForeignKey('self', db_constraint=False, on_delete=models.PROTECT,
-                               default=None, null=True)
+                               default=None, null=True, related_name='children')
 
     objects = OrgManager.from_queryset(NodeQuerySet)()
     is_node = True
@@ -365,16 +262,8 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
     @lazyproperty
     def full_value(self):
         # 不要在列表中调用该属性
-        values = self.__class__.objects.filter(
-            key__in=self.get_ancestor_keys()
-        ).values_list('key', 'value')
-        values = [v for k, v in sorted(values, key=lambda x: len(x[0]))]
-        values.append(self.value)
+        values = self.get_ancestors().values_list('value')
         return ' / '.join(values)
-
-    @property
-    def level(self):
-        return len(self.key.split(':'))
 
     def as_tree_node(self):
         from common.tree import TreeNode
@@ -409,3 +298,90 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
         if self.has_children_or_has_assets():
             return
         return super().delete(using=using, keep_parents=keep_parents)
+
+    @property
+    def ancestors(self):
+        return self.get_ancestors(with_self=False)
+
+    def get_ancestors(self, with_self=False):
+        if with_self:
+            q = Q(left__lte=self.left, right__gte=self.right)
+        else:
+            q = Q(left__lt=self.left, right__gt=self.right)
+
+        org = get_current_org()
+        if not org or org.is_root():
+            q &= Q(org_id=self.org_id)
+
+        return self.__class__.objects.filter(q).order_by('left')
+
+    def get_descendant(self, with_self=False):
+        if with_self:
+            q = Q(left__gte=self.left, right__lte=self.right)
+        else:
+            q = Q(left__gt=self.left, right__lt=self.right)
+
+        org = get_current_org()
+        if not org or org.is_root():
+            q &= Q(org_id=self.org_id)
+
+        return self.__class__.objects.filter(q)
+
+    @property
+    def descendant(self):
+        return self.get_descendant(with_self=False)
+
+    def create_child(self, value=None, _id=None):
+        with atomic(savepoint=False):
+            index = self.right
+            self._update_mptt_serial(index)
+            child = self.__class__.objects.create(
+                id=_id, value=value, parent=self,
+                left=index, right=index + 1, level=self.level+1
+            )
+            return child
+
+    def get_or_create_child(self, value, _id=None):
+        """
+        :return: Node, bool (created)
+        """
+        children = self.children
+        exist = children.filter(value=value).exists()
+        if exist:
+            child = children.filter(value=value).first()
+            created = False
+        else:
+            child = self.create_child(value, _id)
+            created = True
+        return child, created
+
+    @property
+    def parent(self):
+        if self.is_org_root():
+            return self
+        return self.parent
+
+    def _update_mptt_serial(self, index, offset=2):
+        to_update_nodes = Node.objects.filter(
+            right__gte=index
+        )
+        to_update_nodes.update(
+            right=F('right') + offset,
+            left=Case(
+                When(left__gt=index, then=F('left') + index),
+                default=F('left'),
+                output_field=models.IntegerField()
+            )
+        )
+
+    def init_mptt_tree(self, node, index=1):
+        pass
+
+    @parent.setter
+    def parent(self, parent):
+        with transaction.atomic(savepoint=False):
+            parent: Node
+            self: Node
+
+            offset = self.right - self.left + 1
+            self._update_mptt_serial(parent.right, offset)
