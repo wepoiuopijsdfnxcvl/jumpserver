@@ -361,20 +361,20 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
             return self
         return self.parent
 
-    def _update_mptt_serial(self, index, offset=2):
+    def _update_mptt_serial(self, serial, offset=2):
         to_update_nodes = Node.objects.filter(
-            right__gte=index
+            right__gte=serial
         )
         to_update_nodes.update(
             right=F('right') + offset,
             left=Case(
-                When(left__gt=index, then=F('left') + index),
+                When(left__gt=serial, then=F('left') + offset),
                 default=F('left'),
                 output_field=models.IntegerField()
             )
         )
 
-    def init_mptt_serial(self, node, index=1):
+    def init_mptt_serial(self, node, serial=1):
         node: Node
 
         brothers = Stack()
@@ -383,8 +383,8 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
 
         while node:
             # 一个空白的节点
-            node.left = index
-            index += 1
+            node.left = serial
+            serial += 1
             children = node.children.all()
             if children:
                 ancestors.push(node)
@@ -392,8 +392,8 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
                 brothers.push_all(children)
             else:
                 while node:
-                    node.right = index
-                    index += 1
+                    node.right = serial
+                    serial += 1
                     to_update_nodes.append(node)
                     may_brother: Node = brothers.top
                     if may_brother and may_brother.parent_id == node.parent_id:
@@ -417,5 +417,7 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
             parent: Node
             self: Node
 
+            serial = parent.right
             offset = self.right - self.left + 1
-            self._update_mptt_serial(parent.right, offset)
+            self._update_mptt_serial(serial, offset)
+            self.init_mptt_serial(self, serial=serial)
