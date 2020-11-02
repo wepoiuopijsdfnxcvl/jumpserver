@@ -4,7 +4,6 @@ import uuid
 
 from django.db import models, transaction
 from django.db.models import Q, F, Case, When
-from django.db.utils import IntegrityError
 from django.utils.translation import ugettext_lazy as _
 from django.utils.translation import ugettext
 from django.db.transaction import atomic
@@ -17,8 +16,11 @@ from orgs.utils import get_current_org, tmp_to_org
 from orgs.models import Organization
 
 
-__all__ = ['Node', 'FamilyMixin']
+__all__ = ['Node']
 logger = get_logger(__name__)
+
+
+MPTT_BEGIN_SERIAL = 1
 
 
 class NodeQuerySet(models.QuerySet):
@@ -26,152 +28,38 @@ class NodeQuerySet(models.QuerySet):
         raise NotImplementedError
 
 
-class FamilyMixin:
-    __parents = None
-    __children = None
-    __all_children = None
-    is_node = True
-
-    def get_next_child_preset_name(self):
-        name = ugettext("New node")
-        values = [
-            child.value[child.value.rfind(' '):]
-            for child in self.get_children()
-            if child.value.startswith(name)
-        ]
-        values = [int(value) for value in values if value.strip().isdigit()]
-        count = max(values) + 1 if values else 1
-        return '{} {}'.format(name, count)
-
-    def get_siblings(self, with_self=False):
-        key = ':'.join(self.key.split(':')[:-1])
-        pattern = r'^{}:[0-9]+$'.format(key)
-        sibling = Node.objects.filter(
-            key__regex=pattern.format(self.key)
-        )
-        if not with_self:
-            sibling = sibling.exclude(key=self.key)
-        return sibling
-
-    def get_family(self):
-        ancestors = self.get_ancestors()
-        children = self.get_all_children()
-        return [*tuple(ancestors), self, *tuple(children)]
-
-
 class NodeAssetsMixin:
     key = ''
     id = None
 
-    def get_all_assets(self):
-        from .asset import Asset
-        q = Q(nodes__key__startswith=f'{self.key}:') | Q(nodes__key=self.key)
-        return Asset.objects.filter(q).distinct()
-
-    @classmethod
-    def get_node_all_assets_by_key_v2(cls, key):
-        # 最初的写法是：
-        #   Asset.objects.filter(Q(nodes__key__startswith=f'{node.key}:') | Q(nodes__id=node.id))
-        #   可是 startswith 会导致表关联时 Asset 索引失效
-        from .asset import Asset
-        node_ids = cls.objects.filter(
-            Q(key__startswith=f'{key}:') |
-            Q(key=key)
-        ).values_list('id', flat=True).distinct()
-        assets = Asset.objects.filter(
-            nodes__id__in=list(node_ids)
-        ).distinct()
-        return assets
-
-    def get_assets(self):
-        from .asset import Asset
-        assets = Asset.objects.filter(nodes=self)
-        return assets.distinct()
-
-    def get_valid_assets(self):
-        return self.get_assets().valid()
-
-    def get_all_valid_assets(self):
-        return self.get_all_assets().valid()
-
-    @classmethod
-    def get_nodes_all_assets_ids(cls, nodes_keys):
-        assets_ids = cls.get_nodes_all_assets(nodes_keys).values_list('id', flat=True)
-        return assets_ids
-
-    @classmethod
-    def get_nodes_all_assets(cls, nodes_keys, extra_assets_ids=None):
-        from .asset import Asset
-        nodes_keys = cls.clean_children_keys(nodes_keys)
-        q = Q()
-        node_ids = ()
-        for key in nodes_keys:
-            q |= Q(key__startswith=f'{key}:')
-            q |= Q(key=key)
-        if q:
-            node_ids = Node.objects.filter(q).distinct().values_list('id', flat=True)
-
-        q = Q(nodes__id__in=list(node_ids))
-        if extra_assets_ids:
-            q |= Q(id__in=extra_assets_ids)
-        if q:
-            return Asset.org_objects.filter(q).distinct()
-        else:
-            return Asset.objects.none()
-
 
 class SomeNodesMixin:
-    key = ''
-    default_key = '1'
     default_value = 'Default'
-    empty_key = '-11'
     empty_value = _("empty")
 
     @classmethod
     def default_node(cls):
         with tmp_to_org(Organization.default()):
-            defaults = {'value': cls.default_value}
-            try:
-                obj, created = cls.objects.get_or_create(
-                    defaults=defaults, key=cls.default_key,
-                )
-            except IntegrityError as e:
-                logger.error("Create default node failed: {}".format(e))
-                cls.modify_other_org_root_node_key()
-                obj, created = cls.objects.get_or_create(
-                    defaults=defaults, key=cls.default_key,
-                )
+            defaults = {'value': cls.default_value, 'left': 1, 'right': 2}
+            obj, created = cls.objects.get_or_create(
+                defaults=defaults, left=1, org_id=Organization.DEFAULT_ID
+            )
             return obj
 
-    def is_default_node(self):
-        return self.key == self.default_key
-
     def is_org_root(self):
-        if self.key.isdigit():
+        if self.left == 1:
             return True
         else:
             return False
 
     @classmethod
-    def get_next_org_root_node_key(cls):
-        with tmp_to_org(Organization.root()):
-            org_nodes_roots = cls.objects.filter(key__regex=r'^[0-9]+$')
-            org_nodes_roots_keys = org_nodes_roots.values_list('key', flat=True)
-            if not org_nodes_roots_keys:
-                org_nodes_roots_keys = ['1']
-            max_key = max([int(k) for k in org_nodes_roots_keys])
-            key = str(max_key + 1) if max_key != 0 else '2'
-            return key
-
-    @classmethod
     def create_org_root_node(cls):
         # 如果使用current_org 在set_current_org时会死循环
         ori_org = get_current_org()
-        with transaction.atomic():
+        with transaction.atomic(savepoint=False):
             if not ori_org.is_real():
                 return cls.default_node()
-            key = cls.get_next_org_root_node_key()
-            root = cls.objects.create(key=key, value=ori_org.name)
+            root = cls.objects.create(value=ori_org.name)
             return root
 
     @classmethod
@@ -186,37 +74,8 @@ class SomeNodesMixin:
     def initial_some_nodes(cls):
         cls.default_node()
 
-    @classmethod
-    def modify_other_org_root_node_key(cls):
-        """
-        解决创建 default 节点失败的问题，
-        因为在其他组织下存在 default 节点，故在 DEFAULT 组织下 get 不到 create 失败
-        """
-        logger.info("Modify other org root node key")
 
-        with tmp_to_org(Organization.root()):
-            node_key1 = cls.objects.filter(key='1').first()
-            if not node_key1:
-                logger.info("Not found node that `key` = 1")
-                return
-            if not node_key1.org.is_real():
-                logger.info("Org is not real for node that `key` = 1")
-                return
-
-        with transaction.atomic():
-            with tmp_to_org(node_key1.org):
-                org_root_node_new_key = cls.get_next_org_root_node_key()
-                for n in cls.objects.all():
-                    old_key = n.key
-                    key_list = n.key.split(':')
-                    key_list[0] = org_root_node_new_key
-                    new_key = ':'.join(key_list)
-                    n.key = new_key
-                    n.save()
-                    logger.info('Modify key ( {} > {} )'.format(old_key, new_key))
-
-
-class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
+class Node(OrgModelMixin, SomeNodesMixin, NodeAssetsMixin):
     id = models.UUIDField(default=uuid.uuid4, primary_key=True)
     key = models.CharField(unique=True, max_length=64, verbose_name=_("Key"))  # '1:1:1:1'
     value = models.CharField(max_length=128, verbose_name=_("Value"))
@@ -374,7 +233,8 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
             )
         )
 
-    def init_mptt_serial(self, node, serial=1):
+    @classmethod
+    def init_mptt_serial(cls, node, serial=1):
         node: Node
 
         brothers = Stack()
@@ -421,3 +281,59 @@ class Node(OrgModelMixin, SomeNodesMixin, FamilyMixin, NodeAssetsMixin):
             offset = self.right - self.left + 1
             self._update_mptt_serial(serial, offset)
             self.init_mptt_serial(self, serial=serial)
+
+    def get_next_child_preset_name(self):
+        name = ugettext("New node")
+        values = [
+            child.value[child.value.rfind(' '):]
+            for child in self.children.filter(value__startswith=name)
+        ]
+        values = [int(value) for value in values if value.strip().isdigit()]
+        count = max(values) + 1 if values else 1
+        return '{} {}'.format(name, count)
+
+    def get_siblings(self, with_self=False):
+        sibling = Node.objects.filter(
+            parent_id=self.parent_id
+        )
+        if not with_self:
+            sibling = sibling.exclude(id=self.id)
+        return sibling
+
+    def get_all_assets(self):
+        from .asset import Asset
+        return Asset.objects.filter(
+            nodes__left_gte=self.left,
+            nodes__right__lte=self.right
+        ).distinct()
+
+    def get_assets(self):
+        from .asset import Asset
+        return Asset.objects.filter(
+            nodes=self
+        ).distinct()
+
+    @classmethod
+    def get_nodes_all_assets_ids(cls, nodes_id):
+        assets_ids = cls.get_nodes_all_assets(nodes_keys).values_list('id', flat=True)
+        return assets_ids
+
+    @classmethod
+    def get_nodes_all_assets(cls, nodes_ids, extra_assets_ids=None):
+        from .asset import Asset
+        nodes_keys = cls.clean_children_keys(nodes_keys)
+        q = Q()
+        node_ids = ()
+        for key in nodes_keys:
+            q |= Q(key__startswith=f'{key}:')
+            q |= Q(key=key)
+        if q:
+            node_ids = Node.objects.filter(q).distinct().values_list('id', flat=True)
+
+        q = Q(nodes__id__in=list(node_ids))
+        if extra_assets_ids:
+            q |= Q(id__in=extra_assets_ids)
+        if q:
+            return Asset.org_objects.filter(q).distinct()
+        else:
+            return Asset.objects.none()
